@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes import auth, users, datasets, verification, payments
+from app.db.session import engine, Base
+from app.models import user, dataset, purchase  # noqa: F401 — registers models with Base
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -21,6 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Create DB tables on startup (runs alembic-free) ───────────────────────────
+@app.on_event("startup")
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 API_PREFIX = "/api/v1"
 
@@ -30,12 +37,10 @@ app.include_router(datasets.router, prefix=API_PREFIX)
 app.include_router(verification.router, prefix=API_PREFIX)
 app.include_router(payments.router, prefix=API_PREFIX)
 
-
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
-
 
 # ── Dev entry point ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
