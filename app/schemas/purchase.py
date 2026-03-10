@@ -28,13 +28,17 @@ class PurchasePublic(BaseModel):
 
 
 class PaymentIntentResponse(BaseModel):
-    """Returned to frontend so it can call stripe.confirmPayment()"""
+    """Returned to frontend so it can call stripe.confirmPayment()
+    For free datasets, Stripe fields are None and signed_url is provided directly."""
     purchase_id: str
-    client_secret: str           # stripe PaymentIntent client_secret
-    amount_eur: float
-    platform_fee_eur: float
-    seller_payout_eur: float
+    client_secret: Optional[str] = None     # None for free datasets
+    amount_eur: Optional[float] = None
+    platform_fee_eur: Optional[float] = None
+    seller_payout_eur: Optional[float] = None
     dataset_title: str
+    is_free: Optional[bool] = False
+    signed_url: Optional[str] = None        # provided immediately for free datasets
+    expires_in_seconds: Optional[int] = None
 
 
 class DownloadResponse(BaseModel):

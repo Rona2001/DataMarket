@@ -1,65 +1,59 @@
-from pydantic import BaseModel
-from typing import Optional
-from uuid import UUID
+import uuid
 from datetime import datetime
-from app.models.purchase import PurchaseStatus
+from sqlalchemy import Column, String, Float, DateTime, Enum, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+import enum
+
+from app.db.session import Base
 
 
-class PurchaseInitiate(BaseModel):
-    dataset_id: str
+class PurchaseStatus(str, enum.Enum):
+    PENDING = "pending"           # payment initiated, funds in escrow
+    VERIFYING = "verifying"       # dataset being verified post-purchase
+    COMPLETED = "completed"       # funds released to seller, download ready
+    DISPUTED = "disputed"         # buyer raised issue
+    REFUNDED = "refunded"         # funds returned to buyer
+    CANCELLED = "cancelled"
 
 
-class PurchasePublic(BaseModel):
-    id: UUID
-    buyer_id: UUID
-    dataset_id: UUID
-    amount: float
-    platform_fee: float
-    seller_payout: float
-    status: PurchaseStatus
-    rating: Optional[float]
-    review: Optional[str]
-    access_expires_at: Optional[datetime]
-    created_at: datetime
-    completed_at: Optional[datetime]
+class Purchase(Base):
+    __tablename__ = "purchases"
 
-    class Config:
-        from_attributes = True
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    buyer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False)
 
+    # Financial
+    amount = Column(Float, nullable=False)           # amount paid in EUR
+    platform_fee = Column(Float, nullable=False)     # 10% commission
+    seller_payout = Column(Float, nullable=False)    # amount - fee
 
-class PaymentIntentResponse(BaseModel):
-    """Returned to frontend so it can call stripe.confirmPayment()
-    For free datasets, Stripe fields are None and signed_url is provided directly."""
-    purchase_id: str
-    client_secret: Optional[str] = None     # None for free datasets
-    amount_eur: Optional[float] = None
-    platform_fee_eur: Optional[float] = None
-    seller_payout_eur: Optional[float] = None
-    dataset_title: str
-    is_free: Optional[bool] = False
-    signed_url: Optional[str] = None        # provided immediately for free datasets
-    expires_in_seconds: Optional[int] = None
+    # Escrow / payment tracking
+    status = Column(Enum(PurchaseStatus), default=PurchaseStatus.PENDING)
+    stripe_payment_intent_id = Column(String(255), nullable=True, unique=True)
+    stripe_transfer_id = Column(String(255), nullable=True)  # payout to seller
 
+    # Access control — the buyer gets a time-limited signed URL
+    # We don't store the URL itself, we regenerate it on demand
+    access_expires_at = Column(DateTime, nullable=True)      # when download access expires
 
-class DownloadResponse(BaseModel):
-    """Time-limited signed URL for dataset download."""
-    signed_url: str
-    expires_in_seconds: int
-    checksum: Optional[str]      # buyer can verify file integrity
-    dataset_title: str
+    # Dispute management
+    dispute_reason = Column(Text, nullable=True)
+    dispute_opened_at = Column(DateTime, nullable=True)
+    dispute_resolved_at = Column(DateTime, nullable=True)
 
+    # Review (left by buyer after purchase)
+    rating = Column(Float, nullable=True)            # 1-5
+    review = Column(Text, nullable=True)
 
-class DisputeRequest(BaseModel):
-    reason: str
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
 
+    # Relationships
+    buyer = relationship("User", back_populates="purchases")
+    dataset = relationship("Dataset", back_populates="purchases")
 
-class ReviewRequest(BaseModel):
-    rating: float
-    review: Optional[str] = None
-
-    class Config:
-        @classmethod
-        def validate_rating(cls, v):
-            if not 1.0 <= v <= 5.0:
-                raise ValueError("Rating must be between 1 and 5")
-            return round(v, 1)
+    def __repr__(self):
+        return f"<Purchase {self.id} | {self.status}>"
