@@ -3,58 +3,56 @@ Supabase Storage client — handles all file operations.
 Datasets are stored in private buckets and only served via signed URLs.
 Buyers NEVER get a direct, permanent link.
 """
-import uuid
-from datetime import datetime
-from supabase import create_client, Client
+import httpx
 from app.core.config import settings
 
 
-def get_supabase() -> Client:
-    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+def _headers() -> dict:
+    """Auth headers using service role key — bypasses RLS entirely."""
+    return {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_KEY,
+    }
 
 
 def build_storage_key(seller_id: str, dataset_id: str, filename: str) -> str:
-    """
-    Deterministic storage path:  sellers/{seller_id}/{dataset_id}/{filename}
-    Keeps files organised and prevents collisions.
-    """
     return f"sellers/{seller_id}/{dataset_id}/{filename}"
 
 
 def upload_file(bucket: str, key: str, data: bytes, content_type: str) -> str:
-    """Upload bytes to a Supabase bucket. Returns the storage key."""
-    client = get_supabase()
-    client.storage.from_(bucket).upload(
-        path=key,
-        file=data,
-        file_options={"content-type": content_type, "upsert": "true"},
-    )
+    """Upload bytes directly via Supabase Storage REST API."""
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/{bucket}/{key}"
+    headers = {
+        **_headers(),
+        "Content-Type": content_type,
+        "x-upsert": "true",
+    }
+    response = httpx.put(url, content=data, headers=headers, timeout=60)
+    if response.status_code not in (200, 201):
+        raise Exception(f"Storage upload failed: {response.status_code} {response.text}")
     return key
 
 
 def generate_signed_url(bucket: str, key: str, expires_in: int = None) -> str:
-    """
-    Generate a time-limited signed URL for secure file delivery.
-    Default expiry = SIGNED_URL_EXPIRY_SECONDS from settings (1 hour).
-    This is the ONLY way buyers access datasets.
-    """
+    """Generate a signed URL via Supabase Storage REST API."""
     expiry = expires_in or settings.SIGNED_URL_EXPIRY_SECONDS
-    client = get_supabase()
-    result = client.storage.from_(bucket).create_signed_url(key, expiry)
-    return result["signedURL"]
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/sign/{bucket}/{key}"
+    response = httpx.post(url, json={"expiresIn": expiry}, headers=_headers(), timeout=30)
+    if response.status_code != 200:
+        raise Exception(f"Signed URL failed: {response.status_code} {response.text}")
+    data = response.json()
+    signed_path = data.get("signedURL") or data.get("signedUrl") or data.get("signed_url", "")
+    if signed_path.startswith("/"):
+        return f"{settings.SUPABASE_URL}/storage/v1{signed_path}"
+    return signed_path
 
 
 def delete_file(bucket: str, key: str) -> None:
-    """Permanently remove a file (e.g. seller deletes a dataset)."""
-    client = get_supabase()
-    client.storage.from_(bucket).remove([key])
+    """Delete a file via Supabase Storage REST API."""
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/{bucket}/{key}"
+    httpx.delete(url, headers=_headers(), timeout=30)
 
 
 def get_public_sample_url(key: str) -> str:
-    """
-    Sample files live in a PUBLIC bucket — anyone can preview.
-    Full datasets are always private.
-    """
-    client = get_supabase()
-    result = client.storage.from_(settings.SUPABASE_SAMPLE_BUCKET).get_public_url(key)
-    return result
+    """Get public URL for sample files."""
+    return f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.SUPABASE_SAMPLE_BUCKET}/{key}"
