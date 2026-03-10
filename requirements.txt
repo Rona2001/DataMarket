@@ -21,7 +21,7 @@ pytest-asyncio==0.23.7
 stripe==9.4.0
 
 # Storage
-supabase==2.4.6
+supabase==2.10.0
 
 # Dataset processing
 pandas==2.2.2
