@@ -7,6 +7,7 @@ File processing utilities:
 """
 import hashlib
 import io
+import json
 from typing import Optional
 import pandas as pd
 
@@ -128,3 +129,37 @@ def generate_sample(df: pd.DataFrame, n_rows: int = None) -> bytes:
     buf = io.BytesIO()
     sample_df.to_csv(buf, index=False)
     return buf.getvalue()
+
+
+# ── Structured preview (spec §6 — in-browser sample-first checkout) ─────────────
+
+PREVIEW_ROWS = 10   # deliberately truncated so the preview has no standalone value
+
+
+def generate_preview(df: pd.DataFrame, n_rows: int = PREVIEW_ROWS) -> dict:
+    """
+    Build the structured, JSON-serializable preview shown before checkout:
+    column names + types + null rates, plus the first N rows.
+
+    Deliberately truncated (fewer rows than the CSV sample) so it carries no
+    standalone value. Uses pandas' JSON serializer to safely coerce NaN → null
+    and numpy types → JSON natives.
+    """
+    head = df.head(n_rows)
+    columns = [
+        {
+            "name": str(col),
+            "dtype": str(df[col].dtype),
+            "null_pct": round(float(df[col].isnull().mean()) * 100, 2),
+        }
+        for col in df.columns
+    ]
+    rows = json.loads(head.to_json(orient="records", date_format="iso"))
+    return {
+        "columns": columns,
+        "rows": rows,
+        "num_rows": int(len(df)),
+        "num_columns": int(len(df.columns)),
+        "preview_rows": int(len(head)),
+        "truncated": bool(len(df) > len(head)),
+    }

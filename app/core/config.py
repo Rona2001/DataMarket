@@ -40,6 +40,34 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
+    # Email (Brevo) — optional; features degrade gracefully if unset
+    BREVO_API_KEY: str = ""
+    BREVO_QUALITY_REPORT_LIST_ID: int = 0   # 0 = don't add to any list
+    SUPPORT_EMAIL: str = "hello@datrust.fr"  # where dispute/ops notifications go
+
+    # Free Quality Report (public lead magnet — spec §4)
+    REPORT_MAX_UPLOAD_MB: int = 100          # smaller cap than paid uploads
+    FREE_REPORTS_PER_EMAIL_PER_MONTH: int = 5
+    FREE_REPORTS_PER_IP_PER_HOUR: int = 10
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Category Alerts (spec §11) — max 1 alert email per user per this window
+    ALERT_THROTTLE_HOURS: int = 24
+
+    # Dataset Chatbot (spec §14) — premium pre-purchase Q&A
+    # Provider is swappable via a single value (groq | mistral | ollama | claude).
+    CHAT_PROVIDER: str = "groq"
+    CHAT_RATE_LIMIT_PER_HOUR: int = 40
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # Public/sovereign options, wired for later switch:
+    MISTRAL_API_KEY: str = ""
+    MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
+    MISTRAL_MODEL: str = "mistral-small-latest"
+    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+    OLLAMA_MODEL: str = "llama3.1"
+
     # CORS — accepts comma-separated string or JSON list
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 

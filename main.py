@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import auth, users, datasets, verification, payments
+from app.api.routes import auth, users, datasets, verification, payments, reports, requests, alerts, badge, sellers, reviews, chat, favorites
 from app.db.session import engine, Base
-from app.models import user, dataset, purchase  # noqa: F401 — registers models with Base
+from app.models import user, dataset, purchase, quality_report, dataset_request, alert, review, chat as chat_model, favorite  # noqa: F401 — registers models with Base
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -36,6 +36,14 @@ app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(datasets.router, prefix=API_PREFIX)
 app.include_router(verification.router, prefix=API_PREFIX)
 app.include_router(payments.router, prefix=API_PREFIX)
+app.include_router(reports.router, prefix=API_PREFIX)
+app.include_router(requests.router, prefix=API_PREFIX)
+app.include_router(alerts.router, prefix=API_PREFIX)
+app.include_router(badge.router, prefix=API_PREFIX)
+app.include_router(sellers.router, prefix=API_PREFIX)
+app.include_router(reviews.router, prefix=API_PREFIX)
+app.include_router(chat.router, prefix=API_PREFIX)
+app.include_router(favorites.router, prefix=API_PREFIX)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])

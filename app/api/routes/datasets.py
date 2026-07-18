@@ -13,7 +13,7 @@ Seller only:
   POST   /datasets/{id}/unpublish
   DELETE /datasets/{id}
 """
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -23,6 +23,10 @@ from app.db.session import get_db
 from app.core.security import get_current_user, get_current_active_seller
 from app.schemas.dataset import DatasetCreate, DatasetUpdate, DatasetPublic, DatasetDetail, DatasetList
 from app.services import dataset_service
+from app.models.dataset import DatasetStatus
+from app.verification.pipeline import run_verification_background
+from app.services.alert_service import send_dataset_alerts
+from app.core import notifications
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
@@ -56,6 +60,7 @@ def get_dataset(dataset_id: str, db: Session = Depends(get_db)):
 
 @router.post("", response_model=DatasetPublic, status_code=201)
 async def upload_dataset(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="The dataset file (CSV, JSON, Parquet, Excel, ZIP)"),
     # Metadata sent as JSON string in a form field alongside the file
     metadata: str = Form(..., description='JSON string: {"title": "...", "price": 0, ...}'),
@@ -66,13 +71,27 @@ async def upload_dataset(
     Upload a new dataset. Send as multipart/form-data:
     - `file`: the dataset file
     - `metadata`: JSON string with title, description, price, tags, etc.
+
+    On successful upload the dataset is moved to PENDING_REVIEW and the
+    verification pipeline is auto-triggered in the background (spec §3) —
+    datasets never sit unprocessed.
     """
     try:
         meta = DatasetCreate(**json.loads(metadata))
     except Exception as e:
         return JSONResponse(status_code=422, content={"detail": f"Invalid metadata: {e}"})
 
-    return await dataset_service.upload_dataset(db, seller, file, meta)
+    dataset = await dataset_service.upload_dataset(db, seller, file, meta)
+
+    # Auto-trigger verification: mark pending now, process in the background.
+    # (No refresh — it would drop the transient sample_url set by the service.)
+    dataset.status = DatasetStatus.PENDING_REVIEW
+    db.commit()
+    background_tasks.add_task(run_verification_background, str(dataset.id))
+    # Upload-received confirmation email (best-effort — spec §18).
+    background_tasks.add_task(notifications.upload_received, seller.email, seller.full_name, dataset.title)
+
+    return dataset
 
 
 @router.get("/mine/list", response_model=List[DatasetPublic])
@@ -98,11 +117,14 @@ def update_dataset(
 @router.post("/{dataset_id}/publish", response_model=DatasetPublic)
 def publish_dataset(
     dataset_id: str,
+    background_tasks: BackgroundTasks,
     seller=Depends(get_current_active_seller),
     db: Session = Depends(get_db),
 ):
-    """Make a dataset visible on the marketplace."""
-    return dataset_service.publish_dataset(db, dataset_id, seller)
+    """Make a dataset visible on the marketplace and notify category followers (spec §11)."""
+    dataset = dataset_service.publish_dataset(db, dataset_id, seller)
+    background_tasks.add_task(send_dataset_alerts, str(dataset.id))
+    return dataset
 
 
 @router.post("/{dataset_id}/unpublish", response_model=DatasetPublic)

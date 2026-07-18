@@ -17,7 +17,7 @@ from app.db.session import get_db
 from app.core.security import get_current_active_seller, get_current_admin
 from app.models.dataset import Dataset, DatasetStatus
 from app.schemas.dataset import DatasetPublic
-from app.verification.pipeline import run_verification
+from app.verification.pipeline import run_verification, run_verification_background
 from app.services.dataset_service import get_dataset_by_id
 
 router = APIRouter(tags=["Verification"])
@@ -52,8 +52,9 @@ def request_verification(
     db.commit()
     db.refresh(dataset)
 
-    # Run verification in the background (non-blocking)
-    background_tasks.add_task(run_verification, db, dataset)
+    # Run verification in the background (non-blocking). The task opens its
+    # own DB session — the request session is closed before it runs.
+    background_tasks.add_task(run_verification_background, str(dataset.id))
 
     return dataset
 

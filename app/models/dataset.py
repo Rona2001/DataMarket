@@ -84,5 +84,19 @@ class Dataset(Base):
     seller = relationship("User", back_populates="datasets")
     purchases = relationship("Purchase", back_populates="dataset", lazy="dynamic")
 
+    @property
+    def pii_risk_level(self) -> str | None:
+        """
+        Derived from the verification pipeline's PII scan (never seller-declared).
+        Powers the 'RGPD clean' badge on cards/detail pages (spec §5).
+        Returns None when the dataset hasn't been verified yet.
+        """
+        report = self.verification_report
+        if isinstance(report, dict):
+            pii = report.get("steps", {}).get("pii_scan", {})
+            if isinstance(pii, dict):
+                return pii.get("risk_level")
+        return None
+
     def __repr__(self):
         return f"<Dataset '{self.title}' ({self.status})>"

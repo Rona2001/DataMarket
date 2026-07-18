@@ -1,8 +1,9 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from app.models.user import UserRole
+from app.schemas.dataset import DatasetPublic
 
 
 # ── Registration ──────────────────────────────────────────────────────────────
@@ -79,3 +80,29 @@ class UserUpdate(BaseModel):
     bio: Optional[str] = None
     website: Optional[str] = None
     role: Optional[UserRole] = None
+
+
+# ── Seller profile (spec §12) ───────────────────────────────────────────────────
+
+class SellerProfile(BaseModel):
+    """Public, shareable seller track record. No email/PII exposed."""
+    id: UUID
+    full_name: str
+    organization: Optional[str]
+    role: UserRole
+    is_premium: bool
+    bio: Optional[str]
+    website: Optional[str]
+    created_at: datetime
+
+    # Aggregates (computed on read).
+    dataset_count: int
+    avg_quality_score: Optional[float]
+    total_sales: int
+    avg_rating: Optional[float]
+
+    # Published datasets.
+    datasets: List[DatasetPublic]
+
+    class Config:
+        from_attributes = True

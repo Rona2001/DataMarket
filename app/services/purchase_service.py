@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from app.models.purchase import Purchase, PurchaseStatus
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.user import User
-from app.core import stripe_client, storage
+from app.core import stripe_client, storage, notifications
 from app.core.config import settings
 
 
@@ -175,6 +175,7 @@ def open_dispute(db: Session, purchase_id: str, buyer: User, reason: str) -> Pur
     purchase.dispute_opened_at = datetime.utcnow()
     db.commit()
     db.refresh(purchase)
+    notifications.dispute_opened(db, str(purchase.id))  # spec §18
     return purchase
 
 
@@ -204,6 +205,7 @@ def resolve_dispute(
     purchase.dispute_resolved_at = datetime.utcnow()
     db.commit()
     db.refresh(purchase)
+    notifications.dispute_resolved(db, str(purchase.id), favour_buyer)  # spec §18
     return purchase
 
 
@@ -317,6 +319,8 @@ def _complete_purchase(db: Session, purchase: Purchase) -> None:
     purchase.completed_at = datetime.utcnow()
     purchase.access_expires_at = datetime.utcnow() + timedelta(days=365)
     db.commit()
+    # Purchase confirmation + delivery email (best-effort — spec §18).
+    notifications.purchase_completed(db, str(purchase.id))
 
 
 def _complete_free_purchase(db: Session, purchase: Purchase, dataset: Dataset) -> dict:

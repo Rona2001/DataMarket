@@ -73,6 +73,7 @@ class DatasetPublic(BaseModel):
     usage_restrictions: Optional[str]
     status: DatasetStatus
     quality_score: Optional[float]
+    pii_risk_level: Optional[str] = None   # derived from PII scan — see Dataset.pii_risk_level
     view_count: int
     download_count: int
     average_rating: Optional[float]
@@ -89,6 +90,7 @@ class DatasetDetail(DatasetPublic):
     verification_report: Optional[Any]
     checksum: Optional[str]
     updated_at: datetime
+    preview_url: Optional[str] = None   # public URL to the JSON sample preview
 
 
 class DatasetList(BaseModel):

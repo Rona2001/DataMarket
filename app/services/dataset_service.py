@@ -19,6 +19,7 @@ import re
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, UploadFile
 
 from app.models.dataset import Dataset, DatasetStatus
@@ -26,6 +27,7 @@ from app.models.user import User
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
 from app.core.config import settings
 from app.core import storage
+import json
 from app.utils.file_utils import (
     validate_extension,
     validate_size,
@@ -33,6 +35,7 @@ from app.utils.file_utils import (
     load_dataframe,
     extract_stats,
     generate_sample,
+    generate_preview,
 )
 
 
@@ -91,15 +94,18 @@ async def upload_dataset(
     seller_id = str(seller.id)
     storage_key = storage.build_storage_key(seller_id, dataset_id, file.filename)
     sample_key = storage.build_storage_key(seller_id, dataset_id, "sample.csv")
+    preview_key = storage.build_storage_key(seller_id, dataset_id, "preview.json")
 
-    # 6. Extract stats + generate sample (best effort — won't fail upload if it errors)
+    # 6. Extract stats + generate sample & preview (best effort — won't fail upload if it errors)
     stats = {}
     sample_bytes = None
+    preview = None
     df = load_dataframe(data, data_format)
     if df is not None:
         try:
             stats = extract_stats(df)
             sample_bytes = generate_sample(df)
+            preview = generate_preview(df)
         except Exception:
             pass
 
@@ -113,6 +119,14 @@ async def upload_dataset(
             settings.SUPABASE_SAMPLE_BUCKET, sample_key, sample_bytes, "text/csv"
         )
         sample_url = storage.get_public_sample_url(sample_key)
+
+    if preview is not None:
+        storage.upload_file(
+            settings.SUPABASE_SAMPLE_BUCKET,
+            preview_key,
+            json.dumps(preview).encode("utf-8"),
+            "application/json",
+        )
 
     # 8. Create DB record
     dataset = Dataset(
@@ -190,9 +204,19 @@ def update_dataset(db: Session, dataset_id: str, seller: User, updates: DatasetU
 # ── Delete ────────────────────────────────────────────────────────────────────
 
 def delete_dataset(db: Session, dataset_id: str, seller: User) -> None:
+    from app.models.purchase import Purchase
+
     dataset = _get_owned_dataset(db, dataset_id, seller)
 
-    # Remove files from storage
+    # A dataset that's been purchased can't be hard-deleted (buyers keep access,
+    # and there's a financial audit trail). Ask the seller to unpublish instead.
+    if db.query(Purchase).filter(Purchase.dataset_id == dataset.id).count() > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="This dataset has purchases and can't be deleted. Unpublish it to remove it from the marketplace.",
+        )
+
+    # Remove files from storage (best-effort)
     if dataset.storage_key:
         try:
             storage.delete_file(settings.SUPABASE_STORAGE_BUCKET, dataset.storage_key)
@@ -204,8 +228,15 @@ def delete_dataset(db: Session, dataset_id: str, seller: User) -> None:
         except Exception:
             pass
 
-    db.delete(dataset)
-    db.commit()
+    try:
+        db.delete(dataset)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="This dataset has related records (reviews or activity) and can't be deleted. Unpublish it instead.",
+        )
 
 
 # ── Fetch helpers ─────────────────────────────────────────────────────────────
@@ -227,6 +258,15 @@ def get_published_dataset(db: Session, dataset_id: str) -> Dataset:
     # Increment view count
     dataset.view_count += 1
     db.commit()
+
+    # Attach public preview URLs (transient — computed from deterministic keys).
+    if dataset.sample_storage_key:
+        dataset.sample_url = storage.get_public_sample_url(dataset.sample_storage_key)
+        preview_key = storage.build_storage_key(
+            str(dataset.seller_id), str(dataset.id), "preview.json"
+        )
+        dataset.preview_url = storage.get_public_sample_url(preview_key)
+
     return dataset
 
 
