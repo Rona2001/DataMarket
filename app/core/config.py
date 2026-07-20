@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Email (Brevo) — optional; features degrade gracefully if unset
     BREVO_API_KEY: str = ""
     BREVO_QUALITY_REPORT_LIST_ID: int = 0   # 0 = don't add to any list
-    SUPPORT_EMAIL: str = "hello@datrust.fr"  # where dispute/ops notifications go
+    SUPPORT_EMAIL: str = "rona.nasro@datrust.fr"  # where dispute/ops notifications go
 
     # Free Quality Report (public lead magnet — spec §4)
     REPORT_MAX_UPLOAD_MB: int = 100          # smaller cap than paid uploads
