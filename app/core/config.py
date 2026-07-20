@@ -42,6 +42,8 @@ class Settings(BaseSettings):
 
     # Email (Brevo) — optional; features degrade gracefully if unset
     BREVO_API_KEY: str = ""
+    BREVO_SENDER_EMAIL: str = "rona.nasro@datrust.fr"  # must be a Brevo-verified sender
+    BREVO_SENDER_NAME: str = "datrust"
     BREVO_QUALITY_REPORT_LIST_ID: int = 0   # 0 = don't add to any list
     SUPPORT_EMAIL: str = "rona.nasro@datrust.fr"  # where dispute/ops notifications go
 

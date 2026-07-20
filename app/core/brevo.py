@@ -65,7 +65,7 @@ def send_email(to_email: str, subject: str, html: str, to_name: str | None = Non
         return False
 
     payload = {
-        "sender": {"name": "datrust", "email": "hello@datrust.fr"},
+        "sender": {"name": settings.BREVO_SENDER_NAME, "email": settings.BREVO_SENDER_EMAIL},
         "to": [{"email": to_email, **({"name": to_name} if to_name else {})}],
         "subject": subject,
         "htmlContent": html,
