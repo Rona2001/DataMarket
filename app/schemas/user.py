@@ -46,6 +46,7 @@ class UserPublic(BaseModel):
     """Minimal public profile — safe to expose to other users."""
     id: UUID
     full_name: str
+    avatar_url: Optional[str] = None
     organization: Optional[str]
     role: UserRole
     is_premium: bool
@@ -60,6 +61,7 @@ class UserMe(BaseModel):
     id: UUID
     email: str
     full_name: str
+    avatar_url: Optional[str] = None
     organization: Optional[str]
     role: UserRole
     is_active: bool
@@ -88,6 +90,7 @@ class SellerProfile(BaseModel):
     """Public, shareable seller track record. No email/PII exposed."""
     id: UUID
     full_name: str
+    avatar_url: Optional[str] = None
     organization: Optional[str]
     role: UserRole
     is_premium: bool

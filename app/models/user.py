@@ -44,5 +44,15 @@ class User(Base):
     datasets = relationship("Dataset", back_populates="seller", lazy="dynamic")
     purchases = relationship("Purchase", back_populates="buyer", lazy="dynamic")
 
+    @property
+    def avatar_url(self) -> str:
+        """
+        Public URL of the profile picture. Derived by convention
+        (avatars/{id} in the public samples bucket) rather than stored —
+        the file may not exist yet; clients fall back on image error.
+        """
+        from app.core.storage import get_public_sample_url
+        return get_public_sample_url(f"avatars/{self.id}")
+
     def __repr__(self):
         return f"<User {self.email} ({self.role})>"
