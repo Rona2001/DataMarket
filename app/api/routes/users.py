@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.db.session import get_db
-from app.schemas.user import UserMe, UserPublic, UserUpdate
+from app.schemas.user import UserMe, UserPublic, UserUpdate, DeleteAccountRequest
+from app.core.security import verify_password
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.core import storage
@@ -36,6 +37,33 @@ def update_my_profile(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.delete("/me", status_code=200)
+def delete_my_account(
+    body: DeleteAccountRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete (deactivate) the authenticated account. Requires the password.
+    The account is deactivated and its published datasets are archived —
+    purchase history is preserved for buyers and legal/RGPD bookkeeping.
+    """
+    if not verify_password(body.password, current_user.hashed_password):
+        raise HTTPException(status_code=403, detail="Incorrect password")
+
+    from app.models.dataset import Dataset, DatasetStatus
+    db.query(Dataset).filter(
+        Dataset.seller_id == current_user.id,
+        Dataset.status.in_([DatasetStatus.PUBLISHED, DatasetStatus.VERIFIED]),
+    ).update({Dataset.status: DatasetStatus.ARCHIVED}, synchronize_session=False)
+
+    current_user.is_active = False
+    db.commit()
+
+    storage.delete_file(settings.SUPABASE_SAMPLE_BUCKET, f"avatars/{current_user.id}")
+    return {"message": "Account deleted. Sorry to see you go."}
 
 
 @router.post("/me/avatar")
