@@ -45,6 +45,15 @@ def initiate_purchase(db: Session, buyer: User, dataset_id: str) -> dict:
     _check_not_already_purchased(db, buyer, dataset)
     _check_not_own_dataset(buyer, dataset)
 
+    # Supersede any abandoned pending attempt for this dataset (e.g. a previous
+    # try that failed because the seller wasn't onboarded), so it doesn't linger
+    # as "pending" forever or block this fresh purchase.
+    db.query(Purchase).filter(
+        Purchase.buyer_id == buyer.id,
+        Purchase.dataset_id == dataset.id,
+        Purchase.status == PurchaseStatus.PENDING,
+    ).update({Purchase.status: PurchaseStatus.CANCELLED}, synchronize_session=False)
+
     fee = round(dataset.price * PLATFORM_FEE_RATE, 2)
     payout = round(dataset.price - fee, 2)
 
@@ -280,6 +289,20 @@ def get_seller_payout_status(db: Session, seller: User) -> dict:
 # ── Buyer purchase history ────────────────────────────────────────────────────
 
 def get_buyer_purchases(db: Session, buyer: User) -> list:
+    # Auto-cancel abandoned pending purchases before showing the list. A real
+    # payment completes via webhook within minutes, so anything still pending
+    # after an hour never will — don't leave it showing "pending" forever.
+    stale_cutoff = datetime.utcnow() - timedelta(hours=1)
+    stale = db.query(Purchase).filter(
+        Purchase.buyer_id == buyer.id,
+        Purchase.status == PurchaseStatus.PENDING,
+        Purchase.created_at < stale_cutoff,
+    ).all()
+    if stale:
+        for p in stale:
+            p.status = PurchaseStatus.CANCELLED
+        db.commit()
+
     return (
         db.query(Purchase)
         .filter(Purchase.buyer_id == buyer.id)
@@ -300,10 +323,12 @@ def _get_purchasable_dataset(db: Session, dataset_id: str) -> Dataset:
 
 
 def _check_not_already_purchased(db: Session, buyer: User, dataset: Dataset) -> None:
+    # Only a COMPLETED purchase blocks re-buying. A lingering PENDING record
+    # (an abandoned/failed attempt) must NOT block a fresh purchase.
     existing = db.query(Purchase).filter(
         Purchase.buyer_id == buyer.id,
         Purchase.dataset_id == dataset.id,
-        Purchase.status.in_([PurchaseStatus.COMPLETED, PurchaseStatus.PENDING]),
+        Purchase.status == PurchaseStatus.COMPLETED,
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="You have already purchased this dataset")
