@@ -40,6 +40,8 @@ def create_payment_intent(
     intent = stripe.PaymentIntent.create(
         amount=amount_cents,
         currency="eur",
+        # Required for the frontend PaymentElement to render card/other methods.
+        automatic_payment_methods={"enabled": True},
         application_fee_amount=fee_cents,
         transfer_data={"destination": seller_stripe_account_id},
         receipt_email=buyer_email,
@@ -47,7 +49,7 @@ def create_payment_intent(
             "dataset_id": dataset_id,
             "dataset_title": dataset_title,
         },
-        description=f"DataMarket — {dataset_title}",
+        description=f"datrust — {dataset_title}",
     )
 
     return {
