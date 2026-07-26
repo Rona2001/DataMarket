@@ -100,7 +100,8 @@ def create_seller_account(email: str) -> str:
             "card_payments": {"requested": True},
         },
         business_type="individual",
-        settings={"payouts": {"schedule": {"interval": "weekly"}}},
+        # Weekly payouts require an anchor day; Stripe rejects "weekly" without it.
+        settings={"payouts": {"schedule": {"interval": "weekly", "weekly_anchor": "monday"}}},
     )
     return account.id
 
