@@ -40,8 +40,9 @@ def create_payment_intent(
     intent = stripe.PaymentIntent.create(
         amount=amount_cents,
         currency="eur",
-        # Required for the frontend PaymentElement to render card/other methods.
-        automatic_payment_methods={"enabled": True},
+        # Card-only keeps the checkout form compact — no Link, wallets, or
+        # "save card" prompt. (Still makes the PaymentElement render.)
+        payment_method_types=["card"],
         application_fee_amount=fee_cents,
         transfer_data={"destination": seller_stripe_account_id},
         receipt_email=buyer_email,
