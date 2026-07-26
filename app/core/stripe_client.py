@@ -123,11 +123,14 @@ def create_seller_onboarding_link(stripe_account_id: str, return_url: str, refre
 def get_seller_account(stripe_account_id: str) -> dict:
     """Check if a seller has completed Stripe onboarding."""
     account = stripe.Account.retrieve(stripe_account_id)
+    capabilities = account.get("capabilities", {}) or {}
     return {
         "id": account.id,
         "charges_enabled": account.charges_enabled,
         "payouts_enabled": account.payouts_enabled,
         "details_submitted": account.details_submitted,
+        # Destination charges require the transfers capability to be "active".
+        "transfers_active": capabilities.get("transfers") == "active",
     }
 
 

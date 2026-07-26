@@ -45,6 +45,23 @@ def initiate_purchase(db: Session, buyer: User, dataset_id: str) -> dict:
     _check_not_already_purchased(db, buyer, dataset)
     _check_not_own_dataset(buyer, dataset)
 
+    # For a paid dataset, confirm the seller can actually receive the money
+    # BEFORE creating any record — otherwise Stripe rejects the PaymentIntent
+    # (destination account missing the "transfers" capability) with a 500.
+    if not dataset.is_free:
+        seller = db.query(User).filter(User.id == dataset.seller_id).first()
+        if not seller or not seller.stripe_customer_id:
+            raise HTTPException(
+                status_code=402,
+                detail="This dataset's seller hasn't set up payouts yet, so it can't be purchased right now.",
+            )
+        account = stripe_client.get_seller_account(seller.stripe_customer_id)
+        if not account.get("transfers_active"):
+            raise HTTPException(
+                status_code=402,
+                detail="This dataset's seller is still finishing their payout setup. Please try again later.",
+            )
+
     # Supersede any abandoned pending attempt for this dataset (e.g. a previous
     # try that failed because the seller wasn't onboarded), so it doesn't linger
     # as "pending" forever or block this fresh purchase.
