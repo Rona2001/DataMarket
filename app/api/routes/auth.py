@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -11,17 +11,32 @@ from app.services.auth_service import (
     register_user, login_user, refresh_access_token,
     request_password_reset, reset_password,
 )
+from app.core import brevo, notifications
+from app.core.config import settings
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=UserMe, status_code=201)
-def register(data: UserRegister, db: Session = Depends(get_db)):
+def register(data: UserRegister, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Register a new account (buyer, seller, or both).
+    Sends a welcome email and adds the user to Brevo — both best-effort and
+    non-blocking, so email/Brevo issues never delay or fail signup.
     """
     user = register_user(db, data)
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    background_tasks.add_task(notifications.welcome, user.email, user.full_name, role)
+    # Pass the users-list id explicitly (0 = add contact but no list). Passing
+    # None here would make add_contact fall back to the quality-report list.
+    background_tasks.add_task(
+        brevo.add_contact,
+        user.email,
+        {"FULLNAME": user.full_name or "", "ROLE": role},
+        settings.BREVO_USERS_LIST_ID,
+    )
     return user
 
 

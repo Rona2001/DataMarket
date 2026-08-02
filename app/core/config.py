@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     BREVO_SENDER_EMAIL: str = "rona.nasro@datrust.fr"  # must be a Brevo-verified sender
     BREVO_SENDER_NAME: str = "datrust"
     BREVO_QUALITY_REPORT_LIST_ID: int = 0   # 0 = don't add to any list
+    BREVO_USERS_LIST_ID: int = 0            # registered users (welcome flow); 0 = don't add
     SUPPORT_EMAIL: str = "rona.nasro@datrust.fr"  # where dispute/ops notifications go
 
     # Free Quality Report (public lead magnet — spec §4)

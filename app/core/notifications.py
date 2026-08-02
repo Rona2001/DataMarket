@@ -33,6 +33,42 @@ def _send(to_email: str, subject: str, body_html: str, to_name: str | None = Non
     logger.info("notification not delivered to %s (subject: %s)", to_email, subject)
 
 
+# ── Welcome (new account) ───────────────────────────────────────────────────────
+
+def welcome(email: str, name: str | None, role: str) -> None:
+    """
+    Greet a freshly-registered user. Role-aware CTA: buyers get 'browse',
+    sellers get 'list your data', 'both' get both. Best-effort — never blocks
+    or breaks signup.
+    """
+    base = settings.FRONTEND_URL.rstrip("/")
+    is_seller = role in ("seller", "both")
+    is_buyer = role in ("buyer", "both")
+
+    ctas = []
+    if is_buyer:
+        ctas.append(
+            f'<p><a href="{base}/dashboard/buyer">Browse the marketplace</a> — '
+            f"every dataset is quality-scored and screened for PII/RGPD compliance before it's listed.</p>"
+        )
+    if is_seller:
+        ctas.append(
+            f'<p><a href="{base}/dashboard/seller">List your first dataset</a> — '
+            f"upload it and our verification pipeline scores it automatically, so buyers can trust it.</p>"
+        )
+
+    _send(
+        email,
+        "Welcome to datrust",
+        f"<p>Hi {name or 'there'},</p>"
+        f"<p>Welcome aboard — your datrust account is ready. datrust is the marketplace for "
+        f"verified, compliance-checked datasets, and you're all set to get started.</p>"
+        + "".join(ctas)
+        + "<p>Questions or feedback? Just reply to this email — we read every one.</p>",
+        name,
+    )
+
+
 # ── Upload received (seller) ────────────────────────────────────────────────────
 
 def upload_received(email: str, name: str | None, dataset_title: str) -> None:
