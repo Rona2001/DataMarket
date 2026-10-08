@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     CHAT_FULL_CATALOGUE_MAX: int = 25           # at or below this many listings, pass them all
     GROQ_API_KEY: str = ""
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     # Public/sovereign options, wired for later switch:
     MISTRAL_API_KEY: str = ""
     MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"

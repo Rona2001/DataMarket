@@ -19,16 +19,23 @@ def _openai_compatible(base_url: str, api_key: str, model: str, system: str, mes
         "model": model,
         "messages": [{"role": "system", "content": system}, *messages],
         "temperature": 0.2,
-        "max_tokens": 600,
+        "max_tokens": 1200,
     }
+    if model.startswith("openai/gpt-oss"):
+        # Reasoning model: its thinking counts against max_tokens, so keep it short.
+        payload["reasoning_effort"] = "low"
     resp = httpx.post(
         f"{base_url.rstrip('/')}/chat/completions",
         json=payload,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         timeout=30,
     )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{resp.status_code} from {model}: {resp.text[:500]}")
+    content = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+    if not content:
+        raise RuntimeError(f"empty answer from {model}")
+    return content
 
 
 def _stub(system: str, messages: list[dict], fallback: str | None = None) -> str:
