@@ -6,7 +6,6 @@ Buyer:
   GET  /purchases                       — my purchase history
   GET  /purchases/{id}/download         — get signed download URL
   POST /purchases/{id}/dispute          — open a dispute
-  POST /purchases/{id}/review           — leave a review
 
 Seller:
   GET  /seller/onboarding               — get Stripe onboarding URL
@@ -21,6 +20,7 @@ Stripe:
 from fastapi import APIRouter, Depends, Request, Header, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import logging
 import stripe
 
 from app.db.session import get_db
@@ -29,9 +29,11 @@ from app.core import stripe_client
 from app.schemas.purchase import (
     PurchaseInitiate, PurchasePublic,
     PaymentIntentResponse, DownloadResponse,
-    DisputeRequest, ReviewRequest,
+    DisputeRequest,
 )
-from app.services import purchase_service
+from app.services import purchase_service, billing_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Purchases & Payments"])
 
@@ -84,16 +86,6 @@ def open_dispute(
     """Open a dispute within 48h of purchase. Funds are frozen until resolved."""
     return purchase_service.open_dispute(db, purchase_id, buyer, body.reason)
 
-
-@router.post("/purchases/{purchase_id}/review", response_model=PurchasePublic)
-def leave_review(
-    purchase_id: str,
-    body: ReviewRequest,
-    buyer=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Leave a rating (1–5) and optional review for a completed purchase."""
-    return purchase_service.leave_review(db, purchase_id, buyer, body.rating, body.review)
 
 
 # ── Seller — Stripe onboarding ────────────────────────────────────────────────
@@ -151,7 +143,8 @@ async def stripe_webhook(
     Stripe sends events here. We handle:
       - payment_intent.succeeded → complete purchase, release funds
       - payment_intent.payment_failed → cancel purchase
-      - account.updated → seller onboarding completed
+      - checkout.session.completed → Premium subscription activated
+      - customer.subscription.* → Premium renewed, past due or cancelled
     """
     payload = await request.body()
 
@@ -183,14 +176,23 @@ async def stripe_webhook(
             purchase.status = PurchaseStatus.CANCELLED
             db.commit()
 
-    elif event_type == "account.updated":
-        # Seller completed Stripe onboarding
-        from app.models.user import User
-        seller = (
-            db.query(User)
-            .filter(User.stripe_customer_id == data["id"])
-            .first()
-        )
-        # Could trigger a notification here (future: email)
+    elif event_type == "checkout.session.completed":
+        # Premium subscription paid for the first time
+        if data.get("mode") == "subscription" and data.get("subscription"):
+            try:
+                billing_service.handle_subscription_event(db, data["subscription"], data.get("client_reference_id"))
+            except Exception as e:
+                logger.error("Premium activation failed for session %s: %s", data.get("id"), e)
+
+    elif event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        # Renewal, failed payment, cancellation: keep is_premium in step with Stripe
+        try:
+            billing_service.handle_subscription_event(db, data["id"])
+        except Exception as e:
+            logger.error("Subscription sync failed for %s: %s", data.get("id"), e)
 
     return {"received": True}

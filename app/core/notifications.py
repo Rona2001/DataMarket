@@ -95,7 +95,20 @@ def verification_done(db: Session, dataset_id: str) -> None:
     link = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/seller"
     name = dataset.seller.full_name
 
-    if dataset.status == DatasetStatus.VERIFIED:
+    if dataset.status == DatasetStatus.PUBLISHED:
+        listing = f"{settings.FRONTEND_URL.rstrip('/')}/dataset/{dataset.id}"
+        _send(
+            dataset.seller.email,
+            f"Live on datrust: {dataset.title} scored {int(dataset.quality_score or 0)}/100",
+            f"<p>Hi {name or 'there'},</p>"
+            f"<p><strong>{dataset.title}</strong> passed verification with a quality score of "
+            f"<strong>{int(dataset.quality_score or 0)}/100</strong> and is now live on the marketplace. "
+            f"Nothing else to do on your side.</p>"
+            f"<p><a href=\"{listing}\">See your listing</a>, or manage it from your "
+            f"<a href=\"{link}\">dashboard</a>. You can unpublish it there at any time.</p>",
+            name,
+        )
+    elif dataset.status == DatasetStatus.VERIFIED:
         _send(
             dataset.seller.email,
             f"Verified — {dataset.title} scored {int(dataset.quality_score or 0)}/100",

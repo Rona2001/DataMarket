@@ -63,10 +63,6 @@ def create_payment_intent(
     }
 
 
-def get_payment_intent(payment_intent_id: str) -> stripe.PaymentIntent:
-    return stripe.PaymentIntent.retrieve(payment_intent_id)
-
-
 # ── Refunds (dispute resolution) ─────────────────────────────────────────────
 
 def refund_payment(payment_intent_id: str, reason: str = "requested_by_customer") -> dict:
@@ -144,3 +140,64 @@ def construct_webhook_event(payload: bytes, sig_header: str) -> stripe.Event:
     return stripe.Webhook.construct_event(
         payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
     )
+
+
+# ── Premium subscription (Stripe Billing) ─────────────────────────────────────
+
+def create_customer(email: str, name: str | None, user_id: str) -> str:
+    customer = stripe.Customer.create(email=email, name=name or None, metadata={"user_id": user_id})
+    return customer.id
+
+
+def create_premium_checkout(customer_id: str, user_id: str, success_url: str, cancel_url: str) -> str:
+    """
+    Stripe-hosted Checkout for the monthly Premium plan. Uses the configured
+    Price when STRIPE_PREMIUM_PRICE_ID is set, otherwise an inline €/month price
+    so the plan works without any dashboard setup.
+    """
+    if settings.STRIPE_PREMIUM_PRICE_ID:
+        line_item = {"price": settings.STRIPE_PREMIUM_PRICE_ID, "quantity": 1}
+    else:
+        line_item = {
+            "quantity": 1,
+            "price_data": {
+                "currency": "eur",
+                "unit_amount": int(round(settings.PREMIUM_PRICE_EUR * 100)),
+                "recurring": {"interval": "month"},
+                "product_data": {"name": "datrust Premium"},
+            },
+        }
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        customer=customer_id,
+        line_items=[line_item],
+        client_reference_id=user_id,
+        metadata={"user_id": user_id},
+        subscription_data={"metadata": {"user_id": user_id}},
+        allow_promotion_codes=True,
+        success_url=success_url,
+        cancel_url=cancel_url,
+    )
+    return session.url
+
+
+def get_checkout_session(session_id: str):
+    return stripe.checkout.Session.retrieve(session_id)
+
+
+def get_subscription(subscription_id: str):
+    return stripe.Subscription.retrieve(subscription_id)
+
+
+def set_subscription_cancel(subscription_id: str, cancel: bool):
+    """Cancel at the end of the paid period (or undo it). Access continues until then."""
+    return stripe.Subscription.modify(subscription_id, cancel_at_period_end=cancel)
+
+
+def cancel_subscription(subscription_id: str):
+    """Cancel immediately (account deletion)."""
+    return stripe.Subscription.cancel(subscription_id)
+
+
+def create_billing_portal(customer_id: str, return_url: str) -> str:
+    return stripe.billing_portal.Session.create(customer=customer_id, return_url=return_url).url

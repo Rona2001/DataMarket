@@ -235,46 +235,6 @@ def resolve_dispute(
     return purchase
 
 
-# ── Review ────────────────────────────────────────────────────────────────────
-
-def leave_review(
-    db: Session,
-    purchase_id: str,
-    buyer: User,
-    rating: float,
-    review: str = None,
-) -> Purchase:
-    if not 1.0 <= rating <= 5.0:
-        raise HTTPException(status_code=422, detail="Rating must be between 1 and 5")
-
-    purchase = _get_owned_purchase(db, purchase_id, buyer)
-
-    if purchase.status != PurchaseStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="Can only review completed purchases")
-    if purchase.rating is not None:
-        raise HTTPException(status_code=400, detail="You have already reviewed this purchase")
-
-    purchase.rating = rating
-    purchase.review = review
-
-    # Recalculate dataset average rating
-    dataset = db.query(Dataset).filter(Dataset.id == purchase.dataset_id).first()
-    all_ratings = (
-        db.query(Purchase.rating)
-        .filter(
-            Purchase.dataset_id == dataset.id,
-            Purchase.rating.isnot(None),
-        )
-        .all()
-    )
-    ratings = [r[0] for r in all_ratings]
-    dataset.average_rating = round(sum(ratings) / len(ratings), 2)
-
-    db.commit()
-    db.refresh(purchase)
-    return purchase
-
-
 # ── Seller onboarding ─────────────────────────────────────────────────────────
 
 def onboard_seller(db: Session, seller: User, return_url: str, refresh_url: str) -> str:

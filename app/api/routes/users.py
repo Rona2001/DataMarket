@@ -59,6 +59,10 @@ def delete_my_account(
         Dataset.status.in_([DatasetStatus.PUBLISHED, DatasetStatus.VERIFIED]),
     ).update({Dataset.status: DatasetStatus.ARCHIVED}, synchronize_session=False)
 
+    # Stop Premium billing before the account goes away.
+    from app.services import billing_service
+    billing_service.cancel_now_for_deleted_user(db, current_user)
+
     current_user.is_active = False
     db.commit()
 

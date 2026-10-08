@@ -166,6 +166,44 @@ async def upload_dataset(
 
 # ── Publish / Unpublish ───────────────────────────────────────────────────────
 
+# ── Publication gate ──────────────────────────────────────────────────────────
+
+# Risk levels that block publication outright. Anything the scanner flags counts:
+# the marketplace does not list datasets containing personal data, full stop.
+BLOCKING_PII_RISK = {"low", "medium", "high"}
+
+
+def pii_block_reason(dataset: Dataset) -> str | None:
+    """
+    Why this dataset may not go on the marketplace, or None if it may.
+
+    Two separate checks, because a block that only looks at the scan result is
+    trivially bypassed by publishing a dataset that was never scanned.
+    """
+    report = dataset.verification_report
+    scanned = (
+        isinstance(report, dict)
+        and isinstance(report.get("steps", {}), dict)
+        and "pii_scan" in report.get("steps", {})
+    )
+    if not scanned:
+        return (
+            "This dataset has not been scanned yet. Run verification before publishing, "
+            "so buyers can see its quality score and personal-data status."
+        )
+
+    risk = dataset.pii_risk_level
+    if risk in BLOCKING_PII_RISK or dataset.contains_pii:
+        return (
+            "Personal data was detected in this dataset, so it cannot be published. "
+            "datrust does not list datasets containing personal data. "
+            "Anonymise or remove the affected columns, upload the corrected file and "
+            "run verification again. The verification report lists exactly which "
+            "columns were flagged."
+        )
+    return None
+
+
 def publish_dataset(db: Session, dataset_id: str, seller: User) -> Dataset:
     dataset = _get_owned_dataset(db, dataset_id, seller)
     if dataset.status not in [DatasetStatus.DRAFT, DatasetStatus.VERIFIED]:
@@ -173,11 +211,30 @@ def publish_dataset(db: Session, dataset_id: str, seller: User) -> Dataset:
             status_code=400,
             detail=f"Cannot publish a dataset with status '{dataset.status}'.",
         )
+
+    blocked = pii_block_reason(dataset)
+    if blocked:
+        raise HTTPException(status_code=422, detail=blocked)
+
     dataset.status = DatasetStatus.PUBLISHED
     dataset.published_at = datetime.utcnow()
     db.commit()
     db.refresh(dataset)
     return dataset
+
+
+def auto_publish(db: Session, dataset: Dataset) -> bool:
+    """
+    Put a freshly verified dataset on the marketplace without anyone clicking
+    publish. Same gate as a manual publish: verified, scanned, no personal data.
+    Returns True when the dataset went live.
+    """
+    if dataset.status != DatasetStatus.VERIFIED or pii_block_reason(dataset):
+        return False
+    dataset.status = DatasetStatus.PUBLISHED
+    dataset.published_at = datetime.utcnow()
+    db.commit()
+    return True
 
 
 def unpublish_dataset(db: Session, dataset_id: str, seller: User) -> Dataset:

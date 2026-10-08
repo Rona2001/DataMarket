@@ -1,6 +1,7 @@
 from pydantic import BaseModel, field_validator
 from typing import List, Literal, Optional
 from uuid import UUID
+from datetime import datetime
 
 
 class ChatTurn(BaseModel):
@@ -45,3 +46,31 @@ class ChatResponse(BaseModel):
     datasets: List[ChatDatasetCard] = []          # datasets Datia recommended in this answer
     context_dataset: Optional[ChatContextDataset] = None
     premium_required: bool = False                # column-level detail was withheld (free plan)
+
+
+class ChatHistory(BaseModel):
+    history: List[ChatTurn] = []
+
+
+class RequestDraft(BaseModel):
+    """A request-board survey pre-filled from a conversation; empty fields are left to the user."""
+    domain: Optional[str] = None
+    data_types: List[str] = []
+    volume: Optional[str] = None
+    intended_use: Optional[str] = None
+    rgpd_constraint: Optional[str] = None
+    budget_range: Optional[str] = None
+    free_text: Optional[str] = None
+
+
+class DatasetQuestion(BaseModel):
+    question: str
+    answered: bool
+    created_at: datetime
+
+
+class DatasetQuestions(BaseModel):
+    dataset_id: str
+    total: int
+    unanswered_total: int
+    questions: List[DatasetQuestion] = []

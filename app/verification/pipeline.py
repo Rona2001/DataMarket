@@ -21,14 +21,18 @@ from app.models.dataset import Dataset, DatasetStatus
 from app.core import storage
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.utils.file_utils import load_dataframe
+from app.utils.file_utils import load_dataframe, extract_stats
 from app.verification.pii_detector import scan_for_pii
 from app.verification.quality_scorer import score_dataset
 
 
 # Score thresholds
 VERIFICATION_PASS_SCORE = 60.0
-AUTO_REJECT_PII_RISK = "high"
+
+# Any risk level the scanner reports blocks verification. A seller declaration
+# cannot override the scan: the marketplace does not list datasets containing
+# personal data, so "I confirm this is GDPR compliant" is not an escape hatch.
+AUTO_REJECT_PII_RISKS = {"low", "medium", "high"}
 
 
 def _to_native(obj):
@@ -54,6 +58,7 @@ def analyze_bytes(
     *,
     seller_declared_gdpr: bool = False,
     seller_declared_no_pii: bool = False,
+    with_stats: bool = False,
 ) -> dict:
     """
     Pure analysis: parse → PII scan → quality score. No DB, no storage.
@@ -96,6 +101,13 @@ def analyze_bytes(
         "num_columns": len(df.columns),
     }
 
+    if with_stats:
+        # Fresh column profile for the listing (see run_verification).
+        try:
+            result["schema_stats"] = extract_stats(df)
+        except Exception:
+            pass
+
     pii_report = scan_for_pii(df)
     result["steps"]["pii_scan"] = pii_report
     result["pii_risk_level"] = pii_report["risk_level"]
@@ -120,7 +132,8 @@ def run_verification_background(dataset_id: str) -> None:
     request-scoped session is already closed by the time this runs.
 
     Wired into the upload flow so datasets never sit in pending_review
-    without processing (see functional spec §3).
+    without processing (see functional spec §3). With AUTO_PUBLISH_VERIFIED
+    a dataset that passes is also published without the seller clicking.
     """
     db = SessionLocal()
     try:
@@ -128,6 +141,16 @@ def run_verification_background(dataset_id: str) -> None:
         if dataset is None:
             return
         run_verification(db, dataset)
+        # Optional: a dataset that passes goes live on its own, and the followers
+        # of its category are alerted (spec §11).
+        if settings.AUTO_PUBLISH_VERIFIED:
+            from app.services import dataset_service
+            from app.services.alert_service import send_dataset_alerts
+            if dataset_service.auto_publish(db, dataset):
+                try:
+                    send_dataset_alerts(dataset_id)
+                except Exception:
+                    pass  # alerts are best-effort, never block publication
         # Email the seller the verification result (best-effort — spec §18).
         from app.core import notifications
         notifications.verification_done(db, dataset_id)
@@ -172,8 +195,17 @@ def run_verification(db: Session, dataset: Dataset) -> dict:
         dataset.data_format,
         seller_declared_gdpr=dataset.gdpr_compliant,
         seller_declared_no_pii=not dataset.contains_pii,
+        with_stats=True,
     )
     report["steps"].update(analysis["steps"])
+
+    # Refresh the listing's column profile from the file itself, so datasets
+    # uploaded before a profiling improvement pick it up on their next verification.
+    stats = analysis.get("schema_stats")
+    if stats:
+        dataset.schema_info = stats
+        dataset.num_rows = stats.get("num_rows")
+        dataset.num_columns = stats.get("num_columns")
 
     # ZIP / unreadable formats can't be structurally scanned.
     if not analysis["parseable"]:
@@ -182,22 +214,20 @@ def run_verification(db: Session, dataset: Dataset) -> dict:
 
     pii_report = analysis["steps"]["pii_scan"]
 
-    # Hard reject if high PII risk and seller didn't declare GDPR compliance
-    if (
-        pii_report["risk_level"] == AUTO_REJECT_PII_RISK
-        and not dataset.gdpr_compliant
-    ):
+    # Hard reject on any detected personal data. Not publishable, no exceptions.
+    if pii_report["risk_level"] in AUTO_REJECT_PII_RISKS or pii_report["pii_detected"]:
+        flagged = ", ".join(c["column"] for c in pii_report.get("flagged_columns", [])) or "one or more columns"
         report["rejection_reason"] = (
-            "High PII risk detected and GDPR compliance not declared. "
-            "Please anonymize the dataset or confirm GDPR compliance before resubmitting."
+            f"Personal data detected in: {flagged}. "
+            "datrust does not list datasets containing personal data. "
+            "Anonymise or remove the affected columns and submit the corrected file again."
         )
         report["steps"]["pii_scan"]["action"] = "auto_rejected"
-        _mark_failed(db, dataset, report["rejection_reason"], pii_report)
-        return report
-
-    # Update PII flag in DB based on scan
-    if pii_report["pii_detected"] and not dataset.contains_pii:
         dataset.contains_pii = True
+        # Store the FULL report, not just the PII step, so `pii_risk_level` and the
+        # seller's verification-report modal still resolve for a rejected dataset.
+        _mark_failed(db, dataset, report["rejection_reason"], report)
+        return report
 
     # ── Step 5: Final verdict ─────────────────────────────────────────────────
     quality_result = analysis["steps"]["quality_score"]

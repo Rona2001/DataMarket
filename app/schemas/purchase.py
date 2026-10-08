@@ -51,15 +51,3 @@ class DownloadResponse(BaseModel):
 
 class DisputeRequest(BaseModel):
     reason: str
-
-
-class ReviewRequest(BaseModel):
-    rating: float
-    review: Optional[str] = None
-
-    class Config:
-        @classmethod
-        def validate_rating(cls, v):
-            if not 1.0 <= v <= 5.0:
-                raise ValueError("Rating must be between 1 and 5")
-            return round(v, 1)

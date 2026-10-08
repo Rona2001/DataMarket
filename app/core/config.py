@@ -17,13 +17,6 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 
-    # Storage
-    STORAGE_BUCKET: str = "datamarket-datasets"
-    STORAGE_REGION: str = "eu-west-3"
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    SIGNED_URL_EXPIRY_SECONDS: int = 3600
-
     # Supabase Storage
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""          # service_role key (server-side only)
@@ -39,6 +32,9 @@ class Settings(BaseSettings):
     # Payments
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    # Premium subscription. Leave the price id empty to bill an inline €/month price.
+    STRIPE_PREMIUM_PRICE_ID: str = ""
+    PREMIUM_PRICE_EUR: float = 10.0
 
     # Email (Brevo) — optional; features degrade gracefully if unset
     BREVO_API_KEY: str = ""
@@ -47,6 +43,11 @@ class Settings(BaseSettings):
     BREVO_QUALITY_REPORT_LIST_ID: int = 0   # 0 = don't add to any list
     BREVO_USERS_LIST_ID: int = 0            # registered users (welcome flow); 0 = don't add
     SUPPORT_EMAIL: str = "rona.nasro@datrust.fr"  # where dispute/ops notifications go
+
+    # Verification → publication. Neither mode needs anyone at datrust to act.
+    # False: the seller sees the score first and clicks publish (what /sell promises).
+    # True: a dataset that passes verification goes live on its own.
+    AUTO_PUBLISH_VERIFIED: bool = False
 
     # Free Quality Report (public lead magnet — spec §4)
     REPORT_MAX_UPLOAD_MB: int = 100          # smaller cap than paid uploads
@@ -64,9 +65,11 @@ class Settings(BaseSettings):
     CHAT_FREE_RATE_LIMIT_PER_HOUR: int = 15     # free plan (discovery + listing-level answers)
     CHAT_MAX_CANDIDATES: int = 8                # datasets shortlisted per question
     CHAT_FULL_CATALOGUE_MAX: int = 25           # at or below this many listings, pass them all
+    CHAT_LOG_QUESTIONS: bool = True             # anonymous per-dataset question log for seller insights
     GROQ_API_KEY: str = ""
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     GROQ_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_FAST_MODEL: str = "openai/gpt-oss-20b"  # helper calls: query expansion, request drafts
     # Public/sovereign options, wired for later switch:
     MISTRAL_API_KEY: str = ""
     MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
