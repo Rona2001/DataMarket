@@ -31,8 +31,10 @@ def _openai_compatible(base_url: str, api_key: str, model: str, system: str, mes
     return resp.json()["choices"][0]["message"]["content"].strip()
 
 
-def _stub(system: str, messages: list[dict]) -> str:
+def _stub(system: str, messages: list[dict], fallback: str | None = None) -> str:
     """Deterministic offline answer so the chat flow works without an API key."""
+    if fallback:
+        return fallback
     last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
     return (
         "⚙️ The dataset assistant isn't connected to a live model yet, so here's what "
@@ -42,11 +44,12 @@ def _stub(system: str, messages: list[dict]) -> str:
     )
 
 
-def chat_completion(system: str, messages: list[dict]) -> str:
+def chat_completion(system: str, messages: list[dict], fallback: str | None = None) -> str:
     """
     Run one chat completion against the configured provider.
     `system` carries the per-dataset context; `messages` is the OpenAI-style
     [{"role": "user"|"assistant", "content": ...}] conversation history.
+    `fallback` is returned as-is when no provider is configured.
     """
     provider = (settings.CHAT_PROVIDER or "groq").lower()
     try:
@@ -60,8 +63,8 @@ def chat_completion(system: str, messages: list[dict]) -> str:
     except Exception as e:  # never surface a provider error as a 500 to the buyer
         logger.warning("Chat provider '%s' failed: %s", provider, e)
         return (
-            "The dataset assistant is temporarily unavailable. Please try again shortly, "
-            "or reach out to the seller through the request board."
+            "Datia is temporarily unavailable. Please try again shortly, "
+            "or post your need on the request board."
         )
 
-    return _stub(system, messages)
+    return _stub(system, messages, fallback)
